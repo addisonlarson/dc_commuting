@@ -11,29 +11,31 @@ xwalk <- read_csv(temp) %>%
   filter(msaname == "WASHINGTON, DC-MD-VA-WV")
 # 2. Download DC and region ODs (if not already downloaded)
 if(!file.exists(here("process_data", "regional_commutes.csv"))){
-  # DC
-  full_dc <- NULL
+  # OD in same state
+  state <- c("dc", "md", "va", "wv")
+  full_in <- NULL
   for (y in 2010:2015){
-    url <- paste0("https://lehd.ces.census.gov/data/lodes/LODES7/dc/od/dc_od_main_JT00_",
-                  y, ".csv.gz")
-    temp <- tempfile()
-    download.file(url, temp)
-    dc_jobs <- read_csv(gzfile(temp))
-    dc_jobs$year <- y
-    full_dc <- rbind(full_dc, dc_jobs)
+    for(s in state){
+      url <- paste0("https://lehd.ces.census.gov/data/lodes/LODES7/",
+                    s, "/od/", s, "_od_main_JT00_", y, ".csv.gz")
+      temp <- tempfile()
+      download.file(url, temp)
+      in_state_jobs <- read_csv(gzfile(temp)) %>%
+        mutate(w_cty = str_sub(w_geocode, 1, 5),
+               h_cty = str_sub(h_geocode, 1, 5),
+               w_geoid = str_sub(w_geocode, 1, 11),
+               h_geoid = str_sub(h_geocode, 1, 11)) %>%
+        mutate_at(vars("w_geocode"), as.character) %>%
+        mutate_at(vars("h_geocode"), as.character) %>%
+        filter(w_cty %in% xwalk$fipscounty & h_cty %in% xwalk$fipscounty)
+      in_state_jobs$year <- y
+      full_in <- rbind(full_in, in_state_jobs)
+    }
   }
-  full_dc <- full_dc %>%
-    mutate(w_cty = str_sub(w_geocode, 1, 5),
-           h_cty = str_sub(h_geocode, 1, 5),
-           w_geoid = str_sub(w_geocode, 1, 11),
-           h_geoid = str_sub(h_geocode, 1, 11)) %>%
-    mutate_at(vars("w_geocode"), as.character) %>%
-    mutate_at(vars("h_geocode"), as.character)
-  # Region
-  out_of_state <- c("dc", "md", "va", "wv")
-  full <- NULL
+  # OD cross state boundaries
+  full_out <- NULL
   for (y in 2010:2015){
-    for(s in out_of_state){
+    for(s in state){
       url <- paste0("https://lehd.ces.census.gov/data/lodes/LODES7/",
                     s, "/od/", s, "_od_aux_JT00_", y, ".csv.gz")
       temp <- tempfile()
@@ -47,11 +49,11 @@ if(!file.exists(here("process_data", "regional_commutes.csv"))){
         mutate_at(vars("h_geocode"), as.character) %>%
         filter(w_cty %in% xwalk$fipscounty & h_cty %in% xwalk$fipscounty)
       out_of_state_jobs$year <- y
-      full <- rbind(full, out_of_state_jobs)
+      full_out <- rbind(full_out, out_of_state_jobs)
     }
   }
   # Merge into a single file and save so we don't have to DL again
-  full <- bind_rows(full, full_dc)
+  full <- bind_rows(full_in, full_out)
   write_csv(full, here("process_data", "regional_commutes.csv"))
 } else {
   full <- read_csv(here("process_data", "regional_commutes.csv")) %>%
